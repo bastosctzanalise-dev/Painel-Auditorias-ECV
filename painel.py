@@ -22,35 +22,44 @@ PASTAS_DRIVE = {
     "LOG": "1ItAdYVhnl-IqIbEAD0AhVlWEm6Zt8-FP"
 }
 
-# --- Conexão Segura e Inteligente via OAuth ---
+# --- Conexão Segura e Inteligente via OAuth / Nuvem ---
+import json
+from google.oauth2 import service_account
+
 def obter_servico_drive():
     SCOPES = ['https://www.googleapis.com/auth/drive.readonly']
     creds = None
     
-    # Se o token já foi gerado antes, o robô usa direto sem pedir login
-    if os.path.exists('token.json'):
-        creds = UserCredentials.from_authorized_user_file('token.json', SCOPES)
-        
-    # Se não existe o token ou ele expirou, faz o login automático pelo navegador
-    if not creds or not creds.valid:
-        if creds and creds.expired and creds.refresh_token:
-            try:
-                creds.refresh(Request())
-            except Exception:
-                creds = None
-        
-        if not creds:
-            # Abre o seu arquivo exatamente com o nome que está na sua barra lateral
-            if not os.path.exists('client_sercrets.json'):
-                st.error("❌ Arquivo 'client_sercrets.json' não foi encontrado na pasta do projeto!")
-                return None
-            flow = InstalledAppFlow.from_client_secrets_file('client_sercrets.json', SCOPES)
-            creds = flow.run_local_server(port=0)
+    # 1º Tenta ler as credenciais secretas do Streamlit Cloud (Internet)
+    if "google_credentials" in st.secrets:
+        try:
+            info_credenciais = json.loads(st.secrets["google_credentials"]["content"])
+            creds = service_account.Credentials.from_service_account_info(info_credenciais, scopes=SCOPES)
+        except Exception as e:
+            st.error(f"❌ Erro nas credenciais secrets do Streamlit Cloud: {e}")
             
-        # Salva o token gerado para não ter que fazer login mais nenhuma vez localmente
-        with open('token.json', 'w') as token:
-            token.write(creds.to_json())
+    # 2º Se não estiver na nuvem (rodando em localhost), usa o método com navegador local
+    if not creds:
+        if os.path.exists('token.json'):
+            creds = UserCredentials.from_authorized_user_file('token.json', SCOPES)
             
+        if not creds or not creds.valid:
+            if creds and creds.expired and creds.refresh_token:
+                try:
+                    creds.refresh(Request())
+                except Exception:
+                    creds = None
+            
+            if not creds:
+                if not os.path.exists('client_sercrets.json'):
+                    st.error("❌ Arquivo 'client_sercrets.json' não foi encontrado na pasta do projeto!")
+                    return None
+                flow = InstalledAppFlow.from_client_secrets_file('client_sercrets.json', SCOPES)
+                creds = flow.run_local_server(port=0)
+                
+            with open('token.json', 'w') as token:
+                token.write(creds.to_json())
+                
     try:
         return build('drive', 'v3', credentials=creds)
     except Exception as e:
