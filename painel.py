@@ -147,7 +147,6 @@ def carregar_dados_das_pastas():
     return pd.DataFrame()
 
 # --- Interface Visual ---
-# Modificado para incluir a opção "Desativado" por padrão (index=0)
 intervalo_auto = st.sidebar.selectbox("Atualização automática", ["Desativado", "30 segundos", "60 segundos"], index=0)
 
 df_completo = carregar_dados_das_pastas()
@@ -172,64 +171,77 @@ else:
     df_filtrado = df_filtrado_tempo[df_filtrado_tempo['EMPRESA'] == empresa_selecionada].copy() if empresa_selecionada != "TODAS" else df_filtrado_tempo.copy()
 
     # Filtros Dinâmicos (Analista, Categoria)
-    analistas_validos = df_filtrado['ANALISTA'].dropna().unique()
+    analistas_validos = df_filtrado['ANALISTA'].dropna().unique() if not df_filtrado.empty else []
     analistas = ["TODOS"] + sorted(list(analistas_validos)) if len(analistas_validos) > 0 else ["TODOS"]
     analista_sel = st.sidebar.selectbox("Filtrar por Analista", analistas)
-    if analista_sel != "TODOS": 
+    if analista_sel != "TODOS" and not df_filtrado.empty: 
         df_filtrado = df_filtrado[df_filtrado['ANALISTA'] == analista_sel]
 
-    categorias_validas = df_filtrado['CATEGORIA'].dropna().unique()
+    categorias_validas = df_filtrado['CATEGORIA'].dropna().unique() if not df_filtrado.empty else []
     categorias = ["TODAS"] + sorted(list(categorias_validas)) if len(categorias_validas) > 0 else ["TODAS"]
     categoria_sel = st.sidebar.selectbox("Filtrar por Categoria", categorias)
-    if categoria_sel != "TODAS": 
+    if categoria_sel != "TODAS" and not df_filtrado.empty: 
         df_filtrado = df_filtrado[df_filtrado['CATEGORIA'] == categoria_sel]
 
-    # --- KPIs Indicadores ---
-    st.markdown(f"### 📈 Indicadores — `Mês: {mes_selecionado}` | `Empresa: {empresa_selecionada}`")
-    total_auditorias = len(df_filtrado)
-    col_laudos = df_filtrado['LAUDOS AUD.C/ ERROS'].fillna('').astype(str).str.upper()
-    aprovadas = col_laudos[col_laudos.str.contains('APROVADO', na=False)].shape[0]
-    nao_conforme = total_auditorias - aprovadas
-    total_erros = int(pd.to_numeric(df_filtrado['QTD DE ERROS'], errors='coerce').fillna(0).sum())
+    # --- 🛡️ SUPER PROTEÇÃO CONTRA FILTROS VAZIOS ---
+    if df_filtrado.empty:
+        st.markdown(f"### 📈 Indicadores — `Mês: {mes_selecionado}` | `Empresa: {empresa_selecionada}`")
+        st.warning(f"ℹ️ Não existem dados ou vistorias registradas para a combinação selecionada.")
+        
+        # Cria abas vazias elegantes para não quebrar o layout
+        tab_graficos, tab_consolidado, tab_tabela = st.tabs(["📊 Visão Gráfica Interativa", "🏢 Resumo Consolidado", "📋 Base de Dados Completa"])
+        with tab_graficos:
+            st.info("ℹ️ Sem dados para gerar gráficos neste filtro.")
+        with tab_consolidado:
+            st.info("ℹ️ Sem dados para gerar o comparativo.")
+        with tab_tabela:
+            st.subheader("📋 Dados Consolidados")
+            st.dataframe(df_filtrado, use_container_width=True)
+            
+    else:
+        # --- KPIs Indicadores (Só calcula se tiver dados!) ---
+        st.markdown(f"### 📈 Indicadores — `Mês: {mes_selecionado}` | `Empresa: {empresa_selecionada}`")
+        total_auditorias = len(df_filtrado)
+        col_laudos = df_filtrado['LAUDOS AUD.C/ ERROS'].fillna('').astype(str).str.upper()
+        aprovadas = col_laudos[col_laudos.str.contains('APROVADO', na=False)].shape[0]
+        nao_conforme = total_auditorias - aprovadas
+        total_erros = int(pd.to_numeric(df_filtrado['QTD DE ERROS'], errors='coerce').fillna(0).sum())
 
-    col1, col2, col3, col4 = st.columns(4)
-    col1.metric("Total de Vistorias", total_auditorias)
-    col2.metric("Aprovadas", aprovadas)
-    col3.metric("Não Conformes", nao_conforme)
-    col4.metric("Qtd Total de Erros", total_erros)
+        col1, col2, col3, col4 = st.columns(4)
+        col1.metric("Total de Vistorias", total_auditorias)
+        col2.metric("Aprovadas", aprovadas)
+        col3.metric("Não Conformes", nao_conforme)
+        col4.metric("Qtd Total de Erros", total_erros)
 
-    st.markdown("---")
+        st.markdown("---")
 
-    # --- ABAS INTERATIVAS ---
-    tab_graficos, tab_consolidado, tab_tabela = st.tabs(["📊 Visão Gráfica Interativa", "🏢 Resumo Consolidado", "📋 Base de Dados Completa"])
+        # --- ABAS INTERATIVAS ---
+        tab_graficos, tab_consolidado, tab_tabela = st.tabs(["📊 Visão Gráfica Interativa", "🏢 Resumo Consolidado", "📋 Base de Dados Completa"])
 
-    with tab_graficos:
-        df_grafico = df_filtrado.dropna(subset=['CATEGORIA'])
-        # 🛡️ PROTEÇÃO: Só desenha o gráfico se houver dados filtrados
-        if not df_grafico.empty:
-            col_g1, col_g2 = st.columns(2)
-            with col_g1:
-                df_count = df_grafico['CATEGORIA'].value_counts().reset_index(name='Quantidade')
-                df_count.columns = ['Categoria','Quantidade']
-                st.plotly_chart(px.bar(df_count, x='Categoria', y='Quantidade', color='Categoria', text_auto=True, title="Quantidade por Categoria"), use_container_width=True)
-            with col_g2:
-                st.plotly_chart(px.pie(df_count, names='Categoria', values='Quantidade', hole=0.4, title="Proporção por Categoria"), use_container_width=True)
-        else:
-            st.info("ℹ️ Não existem dados ou vistorias registradas para este filtro selecionado.")
+        with tab_graficos:
+            df_grafico = df_filtrado.dropna(subset=['CATEGORIA'])
+            if not df_grafico.empty:
+                col_g1, col_g2 = st.columns(2)
+                with col_g1:
+                    df_count = df_grafico['CATEGORIA'].value_counts().reset_index(name='Quantidade')
+                    df_count.columns = ['Categoria','Quantidade']
+                    st.plotly_chart(px.bar(df_count, x='Categoria', y='Quantidade', color='Categoria', text_auto=True, title="Quantidade por Categoria"), use_container_width=True)
+                with col_g2:
+                    st.plotly_chart(px.pie(df_count, names='Categoria', values='Quantidade', hole=0.4, title="Proporção por Categoria"), use_container_width=True)
+            else:
+                st.info("ℹ️ Não existem categorias preenchidas para gerar gráficos.")
 
-    with tab_consolidado:
-        df_consolidado = df_filtrado_tempo.dropna(subset=['CATEGORIA'])
-        # 🛡️ PROTEÇÃO: Só desenha o comparativo se houver dados
-        if not df_consolidado.empty:
-            resumo_geral = df_consolidado.groupby(["EMPRESA","CATEGORIA"]).size().reset_index(name='Quantidade')
-            st.plotly_chart(px.bar(resumo_geral, x='EMPRESA', y='Quantidade', color='CATEGORIA', barmode='group', text_auto=True, title="Comparativo entre Empresas"), use_container_width=True)
-        else:
-            st.info("ℹ️ Não existem dados suficientes para gerar o comparativo.")
+        with tab_consolidado:
+            df_consolidado = df_filtrado_tempo.dropna(subset=['CATEGORIA'])
+            if not df_consolidado.empty:
+                resumo_geral = df_consolidado.groupby(["EMPRESA","CATEGORIA"]).size().reset_index(name='Quantidade')
+                st.plotly_chart(px.bar(resumo_geral, x='EMPRESA', y='Quantidade', color='CATEGORIA', barmode='group', text_auto=True, title="Comparativo entre Empresas"), use_container_width=True)
+            else:
+                st.info("ℹ️ Não existem dados suficientes para gerar o comparativo.")
 
-    with tab_tabela:
-        st.subheader("📋 Dados Consolidados (Mostrando o arquivo de origem)")
-        # 🛡️ Se estiver vazio, mostra uma tabela vazia amigável em vez de quebrar
-        st.dataframe(df_filtrado, use_container_width=True)
+        with tab_tabela:
+            st.subheader("📋 Dados Consolidados (Mostrando o arquivo de origem)")
+            st.dataframe(df_filtrado, use_container_width=True)
 
 # Loop de recarregamento inteligente do Streamlit
 if intervalo_auto != "Desativado":
