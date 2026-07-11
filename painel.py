@@ -16,9 +16,9 @@ st.title("Painel de Auditorias ECV 🚗")
 
 # ✅ IDs reais das suas pastas limpos e extraídos dos seus links
 PASTAS_DRIVE = {
-    "STARCHECK": "1_m65QEty9gt8guRIxLz78UppAD07fSel",
+    "STARCHECK": "1_m65QEty9gt8guRIxLz78UppADO7fSel",
     "VELOX": "1VU-7ny4JOI3oFyuB8TBu6ecwLCQt6cim",
-    "TOKYO": "1UbMlKP67fkk7D3aiZ_wWTESAf32VdA",
+    "TOKYO": "1UbMlKP67fkK7D3aiZ9_w9WTESAf32VdA",
     "LOG": "1ItAdYVhnl-IqIbEAD0AhVlWEm6Zt8-FP"
 }
 
