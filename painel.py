@@ -82,7 +82,6 @@ def carregar_dados_das_pastas():
     for i, (empresa, folder_id) in enumerate(PASTAS_DRIVE.items()):
         status_texto.text(f"🔄 Buscando planilhas da {empresa}...")
         try:
-            # Busca arquivos Excel (.xlsx ou .csv) dentro da pasta específica
             query = f"'{folder_id}' in parents and trashed = false and (mimeType = 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' or mimeType = 'text/csv')"
             resultados = drive_service.files().list(q=query, fields="files(id, name, mimeType)").execute()
             arquivos = resultados.get('files', [])
@@ -91,26 +90,22 @@ def carregar_dados_das_pastas():
                 file_id = arquivo['id']
                 mime_type = arquivo['mimeType']
                 
-                # Baixa o arquivo direto para a memória
                 requisicao = drive_service.files().get_media(fileId=file_id)
                 conteudo_arquivo = requisicao.execute()
                 
-                # Leitura dinâmica baseada no formato do arquivo
                 if 'csv' in mime_type:
                     df = pd.read_csv(io.BytesIO(conteudo_arquivo))
                 else:
                     df = pd.read_excel(io.BytesIO(conteudo_arquivo), sheet_name=0)
                 
-                # Padroniza os nomes das colunas para letras maiúsculas
                 df.columns = df.columns.str.strip().str.upper()
                 
-                # Garante que as colunas obrigatórias existam
                 for col in colunas_obrigatorias:
                     if col not in df.columns:
                         df[col] = None
                         
                 df['EMPRESA'] = empresa
-                df['ARQUIVO_ORIGEM'] = arquivo['name']  # Guarda o nome do arquivo (ex: Janeiro.xlsx)
+                df['ARQUIVO_ORIGEM'] = arquivo['name']
                 todos_df.append(df[colunas_obrigatorias + ['EMPRESA', 'ARQUIVO_ORIGEM']])
                 
         except Exception as e:
@@ -125,7 +120,6 @@ def carregar_dados_das_pastas():
     if todos_df:
         df_final = pd.concat(todos_df, ignore_index=True)
         
-        # Tratamento inteligente de datas para o calendário
         df_final['DATA_CONVERTIDA'] = pd.to_datetime(df_final['DATA'], errors='coerce')
         df_final['ANO_MES'] = df_final['DATA_CONVERTIDA'].dt.strftime('%Y-%m')
         
@@ -159,18 +153,29 @@ else:
     st.sidebar.header("🔍 Filtros de Auditoria")
     
     meses_disponiveis = ["TODOS OS MESES"]
-    df_validos = df_completo[df_completo['MES_ANO_TEXTO'] != "Sem Data"]
-    if not df_validos.empty:
-        df_ordenado = df_validos.sort_values('ANO_MES', ascending=False)
-        meses_disponiveis += list(df_ordenado['MES_ANO_TEXTO'].unique())
+    # 🛡️ PROTEÇÃO ADICIONAL: Garante que só filtre meses válidos se houver dados de data
+    if 'MES_ANO_TEXTO' in df_completo.columns:
+        df_validos = df_completo[(df_completo['MES_ANO_TEXTO'] != "Sem Data") & (df_completo['ANO_MES'].notna())]
+        if not df_validos.empty:
+            df_ordenado = df_validos.sort_values('ANO_MES', ascending=False)
+            meses_disponiveis += list(df_ordenado['MES_ANO_TEXTO'].unique())
         
     mes_selecionado = st.sidebar.selectbox("Selecione o Mês/Ano:", meses_disponiveis)
-    df_filtrado_tempo = df_completo[df_completo['MES_ANO_TEXTO'] == mes_selecionado].copy() if mes_selecionado != "TODOS OS MESES" else df_completo.copy()
+    
+    # Filtragem segura por data
+    if mes_selecionado != "TODOS OS MESES" and not df_completo.empty:
+        df_filtrado_tempo = df_completo[df_completo['MES_ANO_TEXTO'] == mes_selecionado].copy()
+    else:
+        df_filtrado_tempo = df_completo.copy()
 
     empresa_selecionada = st.sidebar.selectbox("Selecione a Empresa", ["TODAS"] + list(PASTAS_DRIVE.keys()))
-    df_filtrado = df_filtrado_tempo[df_filtrado_tempo['EMPRESA'] == empresa_selecionada].copy() if empresa_selecionada != "TODAS" else df_filtrado_tempo.copy()
+    
+    if empresa_selecionada != "TODAS" and not df_filtrado_tempo.empty:
+        df_filtrado = df_filtrado_tempo[df_filtrado_tempo['EMPRESA'] == empresa_selecionada].copy()
+    else:
+        df_filtrado = df_filtrado_tempo.copy()
 
-    # Filtros Dinâmicos (Analista, Categoria)
+    # Filtros Dinâmicos Seguros (Analista, Categoria)
     analistas_validos = df_filtrado['ANALISTA'].dropna().unique() if not df_filtrado.empty else []
     analistas = ["TODOS"] + sorted(list(analistas_validos)) if len(analistas_validos) > 0 else ["TODOS"]
     analista_sel = st.sidebar.selectbox("Filtrar por Analista", analistas)
@@ -188,7 +193,6 @@ else:
         st.markdown(f"### 📈 Indicadores — `Mês: {mes_selecionado}` | `Empresa: {empresa_selecionada}`")
         st.warning(f"ℹ️ Não existem dados ou vistorias registradas para a combinação selecionada.")
         
-        # Cria abas vazias elegantes para não quebrar o layout
         tab_graficos, tab_consolidado, tab_tabela = st.tabs(["📊 Visão Gráfica Interativa", "🏢 Resumo Consolidado", "📋 Base de Dados Completa"])
         with tab_graficos:
             st.info("ℹ️ Sem dados para gerar gráficos neste filtro.")
@@ -199,7 +203,7 @@ else:
             st.dataframe(df_filtrado, use_container_width=True)
             
     else:
-        # --- KPIs Indicadores (Só calcula se tiver dados!) ---
+        # --- KPIs Indicadores ---
         st.markdown(f"### 📈 Indicadores — `Mês: {mes_selecionado}` | `Empresa: {empresa_selecionada}`")
         total_auditorias = len(df_filtrado)
         col_laudos = df_filtrado['LAUDOS AUD.C/ ERROS'].fillna('').astype(str).str.upper()
@@ -248,3 +252,4 @@ if intervalo_auto != "Desativado":
     tempo_segundos = 30 if "30" in intervalo_auto else 60
     time.sleep(tempo_segundos)
     st.rerun()
+      
