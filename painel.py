@@ -147,7 +147,8 @@ def carregar_dados_das_pastas():
     return pd.DataFrame()
 
 # --- Interface Visual ---
-intervalo_auto = st.sidebar.selectbox("Atualização automática (segundos)", [10, 30, 60])
+# Modificado para incluir a opção "Desativado" por padrão (index=0)
+intervalo_auto = st.sidebar.selectbox("Atualização automática", ["Desativado", "30 segundos", "60 segundos"], index=0)
 
 df_completo = carregar_dados_das_pastas()
 st.sidebar.markdown(f"**🕒 Atualizado em:** {datetime.now().strftime('%d/%m/%Y %H:%M:%S')}")
@@ -177,8 +178,8 @@ else:
     if analista_sel != "TODOS": 
         df_filtrado = df_filtrado[df_filtrado['ANALISTA'] == analista_sel]
 
-    categorias_validas = df_filtrado['CATEGORIA'].dropna().unique()
-    categorias = ["TODAS"] + sorted(list(categorias_validas)) if len(categorias_validas) > 0 else ["TODAS"]
+    categories_validas = df_filtrado['CATEGORIA'].dropna().unique()
+    categorias = ["TODAS"] + sorted(list(categories_validas)) if len(categories_validas) > 0 else ["TODAS"]
     categoria_sel = st.sidebar.selectbox("Filtrar por Categoria", categorias)
     if categoria_sel != "TODAS": 
         df_filtrado = df_filtrado[df_filtrado['CATEGORIA'] == categoria_sel]
@@ -223,6 +224,8 @@ else:
         st.subheader("📋 Dados Consolidados (Mostrando o arquivo de origem)")
         st.dataframe(df_filtrado, use_container_width=True)
 
-# Loop de recarregamento do Streamlit
-time.sleep(intervalo_auto)
-st.rerun()
+# Loop de recarregamento inteligente do Streamlit
+if intervalo_auto != "Desativado":
+    tempo_segundos = 30 if "30" in intervalo_auto else 60
+    time.sleep(tempo_segundos)
+    st.rerun()
