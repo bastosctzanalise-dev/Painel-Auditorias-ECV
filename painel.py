@@ -178,8 +178,8 @@ else:
     if analista_sel != "TODOS": 
         df_filtrado = df_filtrado[df_filtrado['ANALISTA'] == analista_sel]
 
-    categories_validas = df_filtrado['CATEGORIA'].dropna().unique()
-    categorias = ["TODAS"] + sorted(list(categories_validas)) if len(categories_validas) > 0 else ["TODAS"]
+    categorias_validas = df_filtrado['CATEGORIA'].dropna().unique()
+    categorias = ["TODAS"] + sorted(list(categorias_validas)) if len(categorias_validas) > 0 else ["TODAS"]
     categoria_sel = st.sidebar.selectbox("Filtrar por Categoria", categorias)
     if categoria_sel != "TODAS": 
         df_filtrado = df_filtrado[df_filtrado['CATEGORIA'] == categoria_sel]
@@ -205,6 +205,7 @@ else:
 
     with tab_graficos:
         df_grafico = df_filtrado.dropna(subset=['CATEGORIA'])
+        # 🛡️ PROTEÇÃO: Só desenha o gráfico se houver dados filtrados
         if not df_grafico.empty:
             col_g1, col_g2 = st.columns(2)
             with col_g1:
@@ -213,15 +214,21 @@ else:
                 st.plotly_chart(px.bar(df_count, x='Categoria', y='Quantidade', color='Categoria', text_auto=True, title="Quantidade por Categoria"), use_container_width=True)
             with col_g2:
                 st.plotly_chart(px.pie(df_count, names='Categoria', values='Quantidade', hole=0.4, title="Proporção por Categoria"), use_container_width=True)
+        else:
+            st.info("ℹ️ Não existem dados ou vistorias registradas para este filtro selecionado.")
 
     with tab_consolidado:
         df_consolidado = df_filtrado_tempo.dropna(subset=['CATEGORIA'])
+        # 🛡️ PROTEÇÃO: Só desenha o comparativo se houver dados
         if not df_consolidado.empty:
             resumo_geral = df_consolidado.groupby(["EMPRESA","CATEGORIA"]).size().reset_index(name='Quantidade')
             st.plotly_chart(px.bar(resumo_geral, x='EMPRESA', y='Quantidade', color='CATEGORIA', barmode='group', text_auto=True, title="Comparativo entre Empresas"), use_container_width=True)
+        else:
+            st.info("ℹ️ Não existem dados suficientes para gerar o comparativo.")
 
     with tab_tabela:
         st.subheader("📋 Dados Consolidados (Mostrando o arquivo de origem)")
+        # 🛡️ Se estiver vazio, mostra uma tabela vazia amigável em vez de quebrar
         st.dataframe(df_filtrado, use_container_width=True)
 
 # Loop de recarregamento inteligente do Streamlit
