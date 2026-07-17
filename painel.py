@@ -134,6 +134,10 @@ def carregar_dados_das_pastas():
             
         df_final['MES_ANO_TEXTO'] = df_final.apply(formatar_mes_ano, axis=1)
         
+        # Padroniza a coluna LAUDOS AUD.C/ ERROS
+        if 'LAUDOS AUD.C/ ERROS' in df_final.columns:
+            df_final['LAUDOS AUD.C/ ERROS'] = df_final['LAUDOS AUD.C/ ERROS'].astype(str).str.strip().str.upper()
+
         # Padroniza a coluna STATUS para evitar problemas de maiúscula/minúscula ou espaços
         if 'STATUS' in df_final.columns:
             df_final['STATUS'] = df_final['STATUS'].astype(str).str.strip().str.upper()
@@ -168,14 +172,14 @@ else:
     empresa_selecionada = st.sidebar.selectbox("Selecione a Empresa", ["TODAS"] + list(PASTAS_DRIVE.keys()))
     df_filtrado = df_filtrado_tempo[df_filtrado_tempo['EMPRESA'] == empresa_selecionada].copy() if empresa_selecionada != "TODAS" else df_filtrado_tempo.copy()
 
-    # Filtro por Analista
+    # 🤝 RETORNADO: Filtro por Analista
     analistas_validos = df_filtrado['ANALISTA'].dropna().unique() if not df_filtrado.empty else []
     analistas = ["TODOS"] + sorted(list(analistas_validos)) if len(analistas_validos) > 0 else ["TODOS"]
     analista_sel = st.sidebar.selectbox("Filtrar por Analista", analistas)
     if analista_sel != "TODOS" and not df_filtrado.empty: 
         df_filtrado = df_filtrado[df_filtrado['ANALISTA'] == analista_sel]
 
-    # 🎯 FILTRO EXCLUSIVO DE PARECER (STATUS DA COLUNA H)
+    # FILTRO DE PARECER (STATUS DA COLUNA H)
     status_validos = df_filtrado['STATUS'].unique() if not df_filtrado.empty else []
     lista_status = ["TODOS OS PARECERES"] + sorted([str(s) for s in status_validos if s != 'NÃO PREENCHIDO'])
     if 'NÃO PREENCHIDO' in status_validos:
@@ -203,24 +207,25 @@ else:
         with tab_tabela: st.dataframe(df_filtrado, use_container_width=True)
             
     else:
-        # --- KPIs Indicadores Dinâmicos baseados na Coluna H (STATUS) ---
+        # --- KPIs Indicadores Corrigidos ---
         st.markdown(f"### 📈 Indicadores — `Mês: {mes_selecionado}` | `Empresa: {empresa_selecionada}`")
         
         total_vistorias = len(df_filtrado)
         
-        # Faz as contagens exatas usando o texto da coluna STATUS
-        qtd_aprovados = df_filtrado[df_filtrado['STATUS'] == 'APROVADO'].shape[0]
+        # 🟢 CONTAGEM DA COLUNA D: Filtra quem está escrito 'APROVADO' na coluna D
+        qtd_aprovados_col_d = df_filtrado[df_filtrado['LAUDOS AUD.C/ ERROS'] == 'APROVADO'].shape[0]
+        
+        # 🔴 CONTROLE DA COLUNA H: Filtra os status específicos preenchidos
         qtd_reprovados = df_filtrado[df_filtrado['STATUS'] == 'REPROVADO'].shape[0]
         qtd_apontamentos = df_filtrado[df_filtrado['STATUS'].str.contains('APONTAM', na=False)].shape[0]
         
-        # Se houver algum outro status que não se encaixe nos acima, mantemos o cálculo geral de não conformidade
         qtd_total_erros = int(pd.to_numeric(df_filtrado['QTD DE ERROS'], errors='coerce').fillna(0).sum())
 
-        # Exibição dos novos blocos de quantidades específicas
+        # Exibição organizada dos blocos de métricas
         col1, col2, col3, col4, col5 = st.columns(5)
         col1.metric("Total Analisado", total_vistorias)
-        col2.metric("✅ Aprovados", qtd_aprovados)
-        col3.metric("❌ Reprovados", qtd_reprovados)
+        col2.metric("✅ Aprovados (Coluna D)", qtd_aprovados_col_d)
+        col3.metric("❌ Reprovados (Coluna H)", qtd_reprovados)
         col4.metric("⚠️ Com Apontamentos", qtd_apontamentos)
         col5.metric("💥 Total de Erros", qtd_total_erros)
 
@@ -230,7 +235,6 @@ else:
         tab_graficos, tab_consolidado, tab_tabela = st.tabs(["📊 Visão Gráfica Interativa", "🏢 Resumo Consolidado", "📋 Base de Dados Completa"])
 
         with tab_graficos:
-            # Gráfico focado na volumetria de Pareceres encontrados
             col_g1, col_g2 = st.columns(2)
             with col_g1:
                 df_status_count = df_filtrado['STATUS'].value_counts().reset_index()
@@ -252,7 +256,7 @@ else:
                 st.info("ℹ️ Não existem dados suficientes para gerar o comparativo.")
 
         with tab_tabela:
-            st.subheader(f"📋 Registros Filtrados — Parecer Atual: {status_sel}")
+            st.subheader(f"📋 Registros Filtrados — Analista: {analista_sel} | Parecer: {status_sel}")
             st.dataframe(df_filtrado, use_container_width=True)
 
 # Loop de recarregamento
@@ -260,3 +264,4 @@ if intervalo_auto != "Desativado":
     tempo_segundos = 30 if "30" in intervalo_auto else 60
     time.sleep(tempo_segundos)
     st.rerun()
+         
