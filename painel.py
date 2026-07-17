@@ -117,6 +117,13 @@ def carregar_dados_das_pastas():
             
     if todos_df:
         df_final = pd.concat(todos_df, ignore_index=True)
+        
+        # 🛡️ SUPER FILTRO: Remove linhas fantasmas onde a PLACA e a DATA estão totalmente vazias
+        df_final = df_final.dropna(subset=['PLACA', 'DATA'], how='all')
+        # Remove também se a placa contiver espaços ou estiver vazia em formato texto
+        df_final = df_final[df_final['PLACA'].astype(str).str.strip() != '']
+        df_final = df_final[df_final['PLACA'].notna()]
+        
         df_final['DATA_CONVERTIDA'] = pd.to_datetime(df_final['DATA'], errors='coerce')
         df_final['ANO_MES'] = df_final['DATA_CONVERTIDA'].dt.strftime('%Y-%m')
         
@@ -134,11 +141,9 @@ def carregar_dados_das_pastas():
             
         df_final['MES_ANO_TEXTO'] = df_final.apply(formatar_mes_ano, axis=1)
         
-        # Padroniza a coluna LAUDOS AUD.C/ ERROS
         if 'LAUDOS AUD.C/ ERROS' in df_final.columns:
             df_final['LAUDOS AUD.C/ ERROS'] = df_final['LAUDOS AUD.C/ ERROS'].astype(str).str.strip().str.upper()
 
-        # Padroniza a coluna STATUS para evitar problemas de maiúscula/minúscula ou espaços
         if 'STATUS' in df_final.columns:
             df_final['STATUS'] = df_final['STATUS'].astype(str).str.strip().str.upper()
             df_final['STATUS'] = df_final['STATUS'].replace({'NAN': 'NÃO PREENCHIDO', '': 'NÃO PREENCHIDO'})
@@ -172,7 +177,7 @@ else:
     empresa_selecionada = st.sidebar.selectbox("Selecione a Empresa", ["TODAS"] + list(PASTAS_DRIVE.keys()))
     df_filtrado = df_filtrado_tempo[df_filtrado_tempo['EMPRESA'] == empresa_selecionada].copy() if empresa_selecionada != "TODAS" else df_filtrado_tempo.copy()
 
-    # 🤝 RETORNADO: Filtro por Analista
+    # Filtro por Analista
     analistas_validos = df_filtrado['ANALISTA'].dropna().unique() if not df_filtrado.empty else []
     analistas = ["TODOS"] + sorted(list(analistas_validos)) if len(analistas_validos) > 0 else ["TODOS"]
     analista_sel = st.sidebar.selectbox("Filtrar por Analista", analistas)
@@ -207,18 +212,15 @@ else:
         with tab_tabela: st.dataframe(df_filtrado, use_container_width=True)
             
     else:
-        # --- KPIs Indicadores Corrigidos ---
+        # --- KPIs Indicadores Limpos ---
         st.markdown(f"### 📈 Indicadores — `Mês: {mes_selecionado}` | `Empresa: {empresa_selecionada}`")
         
         total_vistorias = len(df_filtrado)
         
-        # 🟢 CONTAGEM DA COLUNA D: Filtra quem está escrito 'APROVADO' na coluna D
+        # Contagens reais baseadas apenas nas vistorias válidas
         qtd_aprovados_col_d = df_filtrado[df_filtrado['LAUDOS AUD.C/ ERROS'] == 'APROVADO'].shape[0]
-        
-        # 🔴 CONTROLE DA COLUNA H: Filtra os status específicos preenchidos
         qtd_reprovados = df_filtrado[df_filtrado['STATUS'] == 'REPROVADO'].shape[0]
         qtd_apontamentos = df_filtrado[df_filtrado['STATUS'].str.contains('APONTAM', na=False)].shape[0]
-        
         qtd_total_erros = int(pd.to_numeric(df_filtrado['QTD DE ERROS'], errors='coerce').fillna(0).sum())
 
         # Exibição organizada dos blocos de métricas
@@ -253,7 +255,7 @@ else:
                 resumo_geral = df_consolidado.groupby(["EMPRESA","STATUS"]).size().reset_index(name='Quantidade')
                 st.plotly_chart(px.bar(resumo_geral, x='EMPRESA', y='Quantidade', color='STATUS', barmode='group', text_auto=True, title="Comparativo de Pareceres por Empresa"), use_container_width=True)
             else:
-                st.info("ℹ️ Não existem dados suficientes para gerar o comparativo.")
+                st.info("ℹ️ Não existem dados suficientes para generalize o comparativo.")
 
         with tab_tabela:
             st.subheader(f"📋 Registros Filtrados — Analista: {analista_sel} | Parecer: {status_sel}")
@@ -264,4 +266,3 @@ if intervalo_auto != "Desativado":
     tempo_segundos = 30 if "30" in intervalo_auto else 60
     time.sleep(tempo_segundos)
     st.rerun()
-         
