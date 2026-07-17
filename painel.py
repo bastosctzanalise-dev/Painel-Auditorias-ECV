@@ -14,7 +14,7 @@ from googleapiclient.discovery import build
 st.set_page_config(page_title="Painel de Auditorias ECV", page_icon="🚗", layout="wide")
 st.title("Painel de Auditorias ECV 🚗")
 
-# ✅ IDs reais das suas pastas limpos e extraídos dos seus links
+# ✅ IDs reais das suas pastas
 PASTAS_DRIVE = {
     "STARCHECK": "1_m65QEty9gt8guRIxLz78UppADO7fSel",
     "VELOX": "1VU-7ny4JOI3oFyuB8TBu6ecwLCQt6cim",
@@ -30,7 +30,6 @@ def obter_servico_drive():
     SCOPES = ['https://www.googleapis.com/auth/drive.readonly']
     creds = None
     
-    # 1º Tenta ler as credenciais secretas do Streamlit Cloud (Internet)
     if "google_credentials" in st.secrets:
         try:
             info_credenciais = json.loads(st.secrets["google_credentials"]["content"])
@@ -38,7 +37,6 @@ def obter_servico_drive():
         except Exception as e:
             st.error(f"❌ Erro nas credenciais secrets do Streamlit Cloud: {e}")
             
-    # 2º Se não estiver na nuvem (rodando em localhost), usa o método com navegador local
     if not creds:
         if os.path.exists('token.json'):
             creds = UserCredentials.from_authorized_user_file('token.json', SCOPES)
@@ -66,7 +64,7 @@ def obter_servico_drive():
         st.error(f"❌ Erro ao conectar ao Google Drive: {e}")
         return None
 
-# --- Varre as pastas e junta todas as planilhas de todos os meses ---
+# --- Varre as pastas e junta todas as planilhas ---
 @st.cache_data(ttl=60)
 def carregar_dados_das_pastas():
     todos_df = []
@@ -119,7 +117,6 @@ def carregar_dados_das_pastas():
             
     if todos_df:
         df_final = pd.concat(todos_df, ignore_index=True)
-        
         df_final['DATA_CONVERTIDA'] = pd.to_datetime(df_final['DATA'], errors='coerce')
         df_final['ANO_MES'] = df_final['DATA_CONVERTIDA'].dt.strftime('%Y-%m')
         
@@ -136,6 +133,12 @@ def carregar_dados_das_pastas():
             return "Sem Data"
             
         df_final['MES_ANO_TEXTO'] = df_final.apply(formatar_mes_ano, axis=1)
+        
+        # Padroniza a coluna STATUS para evitar problemas de maiúscula/minúscula ou espaços
+        if 'STATUS' in df_final.columns:
+            df_final['STATUS'] = df_final['STATUS'].astype(str).str.strip().str.upper()
+            df_final['STATUS'] = df_final['STATUS'].replace({'NAN': 'NÃO PREENCHIDO', '': 'NÃO PREENCHIDO'})
+            
         return df_final
         
     return pd.DataFrame()
@@ -153,7 +156,6 @@ else:
     st.sidebar.header("🔍 Filtros de Auditoria")
     
     meses_disponiveis = ["TODOS OS MESES"]
-    # 🛡️ PROTEÇÃO ADICIONAL: Garante que só filtre meses válidos se houver dados de data
     if 'MES_ANO_TEXTO' in df_completo.columns:
         df_validos = df_completo[(df_completo['MES_ANO_TEXTO'] != "Sem Data") & (df_completo['ANO_MES'].notna())]
         if not df_validos.empty:
@@ -161,61 +163,66 @@ else:
             meses_disponiveis += list(df_ordenado['MES_ANO_TEXTO'].unique())
         
     mes_selecionado = st.sidebar.selectbox("Selecione o Mês/Ano:", meses_disponiveis)
-    
-    # Filtragem segura por data
-    if mes_selecionado != "TODOS OS MESES" and not df_completo.empty:
-        df_filtrado_tempo = df_completo[df_completo['MES_ANO_TEXTO'] == mes_selecionado].copy()
-    else:
-        df_filtrado_tempo = df_completo.copy()
+    df_filtrado_tempo = df_completo[df_completo['MES_ANO_TEXTO'] == mes_selecionado].copy() if mes_selecionado != "TODOS OS MESES" else df_completo.copy()
 
     empresa_selecionada = st.sidebar.selectbox("Selecione a Empresa", ["TODAS"] + list(PASTAS_DRIVE.keys()))
-    
-    if empresa_selecionada != "TODAS" and not df_filtrado_tempo.empty:
-        df_filtrado = df_filtrado_tempo[df_filtrado_tempo['EMPRESA'] == empresa_selecionada].copy()
-    else:
-        df_filtrado = df_filtrado_tempo.copy()
+    df_filtrado = df_filtrado_tempo[df_filtrado_tempo['EMPRESA'] == empresa_selecionada].copy() if empresa_selecionada != "TODAS" else df_filtrado_tempo.copy()
 
-    # Filtros Dinâmicos Seguros (Analista, Categoria)
+    # Filtro por Analista
     analistas_validos = df_filtrado['ANALISTA'].dropna().unique() if not df_filtrado.empty else []
     analistas = ["TODOS"] + sorted(list(analistas_validos)) if len(analistas_validos) > 0 else ["TODOS"]
     analista_sel = st.sidebar.selectbox("Filtrar por Analista", analistas)
     if analista_sel != "TODOS" and not df_filtrado.empty: 
         df_filtrado = df_filtrado[df_filtrado['ANALISTA'] == analista_sel]
 
+    # 🎯 FILTRO EXCLUSIVO DE PARECER (STATUS DA COLUNA H)
+    status_validos = df_filtrado['STATUS'].unique() if not df_filtrado.empty else []
+    lista_status = ["TODOS OS PARECERES"] + sorted([str(s) for s in status_validos if s != 'NÃO PREENCHIDO'])
+    if 'NÃO PREENCHIDO' in status_validos:
+        lista_status.append('NÃO PREENCHIDO')
+        
+    status_sel = st.sidebar.selectbox("Filtrar por Parecer (Status Coluna H)", lista_status)
+    if status_sel != "TODOS OS PARECERES" and not df_filtrado.empty:
+        df_filtrado = df_filtrado[df_filtrado['STATUS'] == status_sel]
+
+    # Filtro por Categoria
     categorias_validas = df_filtrado['CATEGORIA'].dropna().unique() if not df_filtrado.empty else []
     categorias = ["TODAS"] + sorted(list(categorias_validas)) if len(categorias_validas) > 0 else ["TODAS"]
     categoria_sel = st.sidebar.selectbox("Filtrar por Categoria", categorias)
     if categoria_sel != "TODAS" and not df_filtrado.empty: 
         df_filtrado = df_filtrado[df_filtrado['CATEGORIA'] == categoria_sel]
 
-    # --- 🛡️ SUPER PROTEÇÃO CONTRA FILTROS VAZIOS ---
+    # --- 🛡️ PROTEÇÃO CONTRA FILTROS VAZIOS ---
     if df_filtrado.empty:
         st.markdown(f"### 📈 Indicadores — `Mês: {mes_selecionado}` | `Empresa: {empresa_selecionada}`")
-        st.warning(f"ℹ️ Não existem dados ou vistorias registradas para a combinação selecionada.")
+        st.warning(f"ℹ️ Não existem dados ou vistorias registradas para os filtros selecionados.")
         
         tab_graficos, tab_consolidado, tab_tabela = st.tabs(["📊 Visão Gráfica Interativa", "🏢 Resumo Consolidado", "📋 Base de Dados Completa"])
-        with tab_graficos:
-            st.info("ℹ️ Sem dados para gerar gráficos neste filtro.")
-        with tab_consolidado:
-            st.info("ℹ️ Sem dados para gerar o comparativo.")
-        with tab_tabela:
-            st.subheader("📋 Dados Consolidados")
-            st.dataframe(df_filtrado, use_container_width=True)
+        with tab_graficos: st.info("ℹ️ Sem gráficos para este filtro.")
+        with tab_consolidado: st.info("ℹ️ Sem comparativos para este filtro.")
+        with tab_tabela: st.dataframe(df_filtrado, use_container_width=True)
             
     else:
-        # --- KPIs Indicadores ---
+        # --- KPIs Indicadores Dinâmicos baseados na Coluna H (STATUS) ---
         st.markdown(f"### 📈 Indicadores — `Mês: {mes_selecionado}` | `Empresa: {empresa_selecionada}`")
-        total_auditorias = len(df_filtrado)
-        col_laudos = df_filtrado['LAUDOS AUD.C/ ERROS'].fillna('').astype(str).str.upper()
-        aprovadas = col_laudos[col_laudos.str.contains('APROVADO', na=False)].shape[0]
-        nao_conforme = total_auditorias - aprovadas
-        total_erros = int(pd.to_numeric(df_filtrado['QTD DE ERROS'], errors='coerce').fillna(0).sum())
+        
+        total_vistorias = len(df_filtrado)
+        
+        # Faz as contagens exatas usando o texto da coluna STATUS
+        qtd_aprovados = df_filtrado[df_filtrado['STATUS'] == 'APROVADO'].shape[0]
+        qtd_reprovados = df_filtrado[df_filtrado['STATUS'] == 'REPROVADO'].shape[0]
+        qtd_apontamentos = df_filtrado[df_filtrado['STATUS'].str.contains('APONTAM', na=False)].shape[0]
+        
+        # Se houver algum outro status que não se encaixe nos acima, mantemos o cálculo geral de não conformidade
+        qtd_total_erros = int(pd.to_numeric(df_filtrado['QTD DE ERROS'], errors='coerce').fillna(0).sum())
 
-        col1, col2, col3, col4 = st.columns(4)
-        col1.metric("Total de Vistorias", total_auditorias)
-        col2.metric("Aprovadas", aprovadas)
-        col3.metric("Não Conformes", nao_conforme)
-        col4.metric("Qtd Total de Erros", total_erros)
+        # Exibição dos novos blocos de quantidades específicas
+        col1, col2, col3, col4, col5 = st.columns(5)
+        col1.metric("Total Analisado", total_vistorias)
+        col2.metric("✅ Aprovados", qtd_aprovados)
+        col3.metric("❌ Reprovados", qtd_reprovados)
+        col4.metric("⚠️ Com Apontamentos", qtd_apontamentos)
+        col5.metric("💥 Total de Erros", qtd_total_erros)
 
         st.markdown("---")
 
@@ -223,33 +230,33 @@ else:
         tab_graficos, tab_consolidado, tab_tabela = st.tabs(["📊 Visão Gráfica Interativa", "🏢 Resumo Consolidado", "📋 Base de Dados Completa"])
 
         with tab_graficos:
-            df_grafico = df_filtrado.dropna(subset=['CATEGORIA'])
-            if not df_grafico.empty:
-                col_g1, col_g2 = st.columns(2)
-                with col_g1:
-                    df_count = df_grafico['CATEGORIA'].value_counts().reset_index(name='Quantidade')
+            # Gráfico focado na volumetria de Pareceres encontrados
+            col_g1, col_g2 = st.columns(2)
+            with col_g1:
+                df_status_count = df_filtrado['STATUS'].value_counts().reset_index()
+                df_status_count.columns = ['Parecer (Status)', 'Quantidade']
+                st.plotly_chart(px.bar(df_status_count, x='Parecer (Status)', y='Quantidade', color='Parecer (Status)', text_auto=True, title="Quantidade por Parecer Final"), use_container_width=True)
+            with col_g2:
+                df_cat_df = df_filtrado.dropna(subset=['CATEGORIA'])
+                if not df_cat_df.empty:
+                    df_count = df_cat_df['CATEGORIA'].value_counts().reset_index()
                     df_count.columns = ['Categoria','Quantidade']
-                    st.plotly_chart(px.bar(df_count, x='Categoria', y='Quantidade', color='Categoria', text_auto=True, title="Quantidade por Categoria"), use_container_width=True)
-                with col_g2:
-                    st.plotly_chart(px.pie(df_count, names='Categoria', values='Quantidade', hole=0.4, title="Proporção por Categoria"), use_container_width=True)
-            else:
-                st.info("ℹ️ Não existem categorias preenchidas para gerar gráficos.")
+                    st.plotly_chart(px.pie(df_count, names='Categoria', values='Quantidade', hole=0.4, title="Proporção por Categoria do Veículo"), use_container_width=True)
 
         with tab_consolidado:
-            df_consolidado = df_filtrado_tempo.dropna(subset=['CATEGORIA'])
+            df_consolidado = df_filtrado_tempo.dropna(subset=['STATUS'])
             if not df_consolidado.empty:
-                resumo_geral = df_consolidado.groupby(["EMPRESA","CATEGORIA"]).size().reset_index(name='Quantidade')
-                st.plotly_chart(px.bar(resumo_geral, x='EMPRESA', y='Quantidade', color='CATEGORIA', barmode='group', text_auto=True, title="Comparativo entre Empresas"), use_container_width=True)
+                resumo_geral = df_consolidado.groupby(["EMPRESA","STATUS"]).size().reset_index(name='Quantidade')
+                st.plotly_chart(px.bar(resumo_geral, x='EMPRESA', y='Quantidade', color='STATUS', barmode='group', text_auto=True, title="Comparativo de Pareceres por Empresa"), use_container_width=True)
             else:
                 st.info("ℹ️ Não existem dados suficientes para gerar o comparativo.")
 
         with tab_tabela:
-            st.subheader("📋 Dados Consolidados (Mostrando o arquivo de origem)")
+            st.subheader(f"📋 Registros Filtrados — Parecer Atual: {status_sel}")
             st.dataframe(df_filtrado, use_container_width=True)
 
-# Loop de recarregamento inteligente do Streamlit
+# Loop de recarregamento
 if intervalo_auto != "Desativado":
     tempo_segundos = 30 if "30" in intervalo_auto else 60
     time.sleep(tempo_segundos)
     st.rerun()
-      
